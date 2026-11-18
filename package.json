@@ -1,4 +1,4 @@
-﻿{
+{
   "name": "dsh-opencode-quota",
   "version": "1.0.1",
   "description": "OpenCode Go quota in the DSH right sidebar: per-model monthly caps, shared 5h/week/month allowance, and an opencode_quota tool.",
