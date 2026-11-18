@@ -1,0 +1,7 @@
+{
+  "meta": {
+    "title": "OpenCode 额度",
+    "description": "在右侧边栏查看 OpenCode Go 各模型的月度上限与共享额度剩余，并提供 opencode_quota 工具。",
+    "detail": "docs/DETAIL.md"
+  }
+}

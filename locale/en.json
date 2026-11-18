@@ -1,0 +1,7 @@
+{
+  "meta": {
+    "title": "OpenCode quota",
+    "description": "Shows each OpenCode Go model's monthly cap and the remaining shared allowance in the right sidebar, plus the opencode_quota tool.",
+    "detail": "docs/DETAIL.md"
+  }
+}

@@ -1,0 +1,54 @@
+{
+  "name": "dsh-opencode-quota",
+  "version": "1.0.0",
+  "description": "OpenCode Go quota in the DSH right sidebar: per-model monthly caps, shared 5h/week/month allowance, and an opencode_quota tool.",
+  "type": "module",
+  "license": "MIT",
+  "author": "HScoffeeK",
+  "homepage": "https://github.com/HScoffeeK/dsh-opencode-quota",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/HScoffeeK/dsh-opencode-quota.git"
+  },
+  "bugs": {
+    "url": "https://github.com/HScoffeeK/dsh-opencode-quota/issues"
+  },
+  "keywords": [
+    "dsh",
+    "dsh-plugin",
+    "deepseek-harness",
+    "opencode",
+    "quota",
+    "usage"
+  ],
+  "exports": {
+    ".": "./index.js",
+    "./client": "./client.js",
+    "./locale/*.json": "./locale/*.json",
+    "./icon": "./icon.svg"
+  },
+  "files": [
+    "index.js",
+    "client.js",
+    "cordis.patch.yml",
+    "locale/*.json",
+    "docs",
+    "icon.svg",
+    "assets"
+  ],
+  "scripts": {
+    "test": "node test/client-smoke.mjs"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "immediately": true,
+      "inject": [
+        "@deepseek-ai/dsh-client-runtime"
+      ]
+    }
+  }
+}
