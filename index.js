@@ -425,7 +425,6 @@ export function apply(ctx, config = {}) {
   };
 
   const state = { cache: null, pending: null };
-  const stats = { snapshots: 0, lastAt: null, boots: 0, bootAt: null };
 
   async function refresh() {
     const previous = state.cache;
@@ -584,8 +583,6 @@ export function apply(ctx, config = {}) {
         /* keep the configured defaults */
       }
       try {
-        stats.snapshots += 1;
-        stats.lastAt = new Date().toISOString();
         const raw = await getRaw(force);
         sendJson(response, 200, snapshot(raw, plan));
       } catch (error) {
@@ -601,34 +598,6 @@ export function apply(ctx, config = {}) {
   }));
 
   /* ----- agent tool ----- */
-
-  // Small read-only health probe: proves the browser half reached this Host.
-  ctx.effect(() => ctx.webServer.register({
-    kind: 'exact',
-    path: '/opencode-quota/api/health',
-    handler: (request, response) => {
-      if (String(request.url || '').includes('boot=1')) {
-        stats.boots += 1;
-        stats.bootAt = new Date().toISOString();
-        try {
-          const url = new URL(request.url || '/', 'http://localhost');
-          stats.bootInfo = url.searchParams.get('info') || '';
-        } catch {
-          stats.bootInfo = '';
-        }
-      }
-      sendJson(response, 200, {
-        ok: true,
-        plugin: 'dsh-opencode-quota',
-        snapshots: stats.snapshots,
-        lastAt: stats.lastAt,
-        boots: stats.boots,
-        bootAt: stats.bootAt,
-        bootInfo: stats.bootInfo ?? null,
-        models: state.cache ? state.cache.models.length : 0,
-      });
-    },
-  }));
 
   ctx.effect(() => {
     const tools = ctx.get('tools');
