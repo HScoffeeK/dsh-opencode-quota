@@ -64,7 +64,7 @@ The key stays on the Host; the browser never receives it, and remote error text 
 
 - OpenCode Go only. OpenCode Models (pay-as-you-go credits) has no comparable allowance read.
 - The gateway reports one shared allowance; per-model figures are derived from it. The 5-hour limit is 20% of the monthly allowance and the weekly limit is 50%, as documented by OpenCode.
-- The snapshot route is a read-only localhost endpoint: caps and percentages only, never the key.
+- The snapshot route is a read-only localhost endpoint gated by the host's request admission (`ctx.connection.requestRejection`): unauthenticated requests get 401, untrusted origins 403, and the payload holds caps and percentages only — never the key.
 
 ## 中文说明
 

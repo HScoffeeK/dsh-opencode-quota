@@ -558,7 +558,24 @@ export function apply(ctx, config = {}) {
     };
   }
 
-  /* ----- HTTP route the Settings page reads ----- */
+  /* ----- HTTP route the page reads ----- */
+
+  /**
+   * Ask the Host's own request gate whether this request is admitted: its
+   * Host/Origin fence plus the browser login its /api routes enforce. A gate
+   * that throws has admitted nothing, so a failure closes the route.
+   * @returns the rejection status (401/403) or undefined when admitted.
+   */
+  function rejectionStatus(request) {
+    try {
+      const connection = ctx.get('connection');
+      const gate = connection?.requestRejection;
+      if (typeof gate !== 'function') return undefined;
+      return gate.call(connection, request);
+    } catch {
+      return 403;
+    }
+  }
 
   ctx.effect(() => ctx.webServer.register({
     kind: 'exact',
@@ -567,6 +584,16 @@ export function apply(ctx, config = {}) {
       if ((request.method || 'GET').toUpperCase() !== 'GET') {
         response.writeHead(405, { allow: 'GET' });
         response.end();
+        return;
+      }
+      const rejected = rejectionStatus(request);
+      if (rejected !== undefined) {
+        sendJson(response, rejected, {
+          ok: false,
+          error: rejected === 401
+            ? 'DSH login required: reopen the URL the host printed at startup.'
+            : 'This request came from an untrusted origin and was refused.',
+        });
         return;
       }
       if (!sameOrigin(request)) {

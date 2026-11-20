@@ -71,4 +71,4 @@ Add fields to this plugin's row in the profile's `cordis.patch.yml`:
 - The 5-hour limit is 20% of the monthly allowance and the weekly limit is 50%, as documented by OpenCode. If those ratios ever change, the derived remaining amounts for those two windows shift with them; the percentages shown are always the gateway's own values.
 - Plans can change: switch the plan selector in the page if the caps look wrong.
 - Only OpenCode Go is covered; OpenCode Models (pay-as-you-go credits) has no comparable allowance read.
-- The page reads a read-only JSON route on the same local Web server. It contains catalog caps and allowance percentages only — never the key — but any local process can request it, so treat it like other localhost-only diagnostics.
+- The page reads a read-only JSON route on the same local Web server, gated by the host's request admission (`ctx.connection.requestRejection`): unauthenticated requests get 401 and untrusted origins/hosts 403, as on the host's own `/api` routes. The payload holds catalog caps and allowance percentages only — never the key.
