@@ -6,9 +6,20 @@ Shows each OpenCode Go model's monthly cap and how much of the shared allowance 
 
 ## What you get
 
-- **`额度 4%` in the session header** — the shared monthly allowance already used. Click it to open the right sidebar on the quota page.
-- **`OpenCode 额度` tab in the right sidebar** — the full table: every Go model with its monthly cap and the amount left this month, this week, and in the current 5-hour window. It also registers a card in the right sidebar guide.
+- **`额度 4%` entries** — the session header, below the composer, and the sidebar footer can each show a clickable quota entry; every one opens the right-sidebar page.
+- **`OpenCode 额度` tab in the right sidebar** — the full table: every Go model with its monthly cap, the amount left this month, this week, and in the current 5-hour window, plus each model's **input / output / cache prices** (USD per 1M tokens). It also registers a card in the right sidebar guide.
 - **`opencode_quota` tool** — ask "how much OpenCode quota is left" or "which model still has room" in chat.
+
+## Display settings
+
+**Settings → OpenCode 额度显示** toggles, each saved immediately on the Host:
+
+- session-header entry
+- entry below the composer
+- sidebar-footer entry
+- model prices in the table
+
+Entry visibility is shared by every DSH window on that Host; the stored preferences live in `$DSH_HOME/cache/dsh-opencode-quota/prefs.json`.
 
 All models share one allowance, so a model's remaining amount is that shared percentage applied to the model's own monthly cap — the same relationship the OpenCode Console uses for per-model monthly limits.
 

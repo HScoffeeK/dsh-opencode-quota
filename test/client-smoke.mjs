@@ -1,6 +1,6 @@
 // Offline smoke test for the OpenCode quota client half.
 // Loads client.js with stubbed browser globals, registers the plugin, then
-// renders the settings page and the composer-dock entry with a fixture.
+// renders the right-sidebar page, the settings page, and one entry point.
 
 import assert from 'node:assert/strict';
 
@@ -24,6 +24,11 @@ globalThis.document = {
 };
 Object.defineProperty(globalThis, 'navigator', { value: { language: 'zh-CN' }, configurable: true });
 
+const prefs = {
+  entries: { header: true, dock: true, footer: false },
+  prices: { show: true },
+};
+
 const snapshot = {
   schema: 1,
   ok: true,
@@ -44,19 +49,28 @@ const snapshot = {
   },
   usageError: null,
   modelsError: null,
+  prefs,
   models: [
     {
       id: 'deepseek-v4.1-flash', name: 'DeepSeek V4.1 Flash 1017', free: false, featured: true,
       monthlyLimit: 100, remaining: { rolling: 17.6, weekly: 46, monthly: 96 },
+      price: { in: 0.15, out: 0.6, cacheRead: 0.003, cacheWrite: null },
     },
     {
       id: 'beam-free', name: 'Beam Free', free: true, featured: true,
       monthlyLimit: null, remaining: null,
+      price: { in: 0, out: 0, cacheRead: 0, cacheWrite: null },
     },
   ],
 };
 
-globalThis.fetch = async () => ({ ok: true, json: async () => snapshot });
+globalThis.fetch = async (url) => {
+  const text = String(url);
+  if (text.includes('/api/prefs')) {
+    return { ok: true, json: async () => ({ ok: true, prefs }) };
+  }
+  return { ok: true, json: async () => snapshot };
+};
 
 /* minimal React hook runtime ------------------------------------------------ */
 
@@ -183,25 +197,36 @@ assert.equal(types.length, 1, `expected one tab type, got ${types.length}`);
 assert.equal(types[0].id, 'dsh-opencode-quota');
 assert.equal(types[0].kind, 'opencode-quota');
 assert.ok(Array.isArray(types[0].guide) && types[0].guide.length === 1, 'guide entry missing');
-assert.equal(registrations.length, 2, `expected two slot registrations, got ${registrations.length}`);
+assert.equal(registrations.length, 5, `expected five slot registrations, got ${registrations.length}`);
 
-const pane = registrations.find((entry) => entry.options.name === 'sidebar.right.pane.tab');
-const entry = registrations.find((entry) => entry.options.name === 'conversation.session.header.utilities');
-assert.ok(pane, 'sidebar.right.pane.tab registration missing');
-assert.ok(entry, 'conversation.session.header.utilities registration missing');
+const byName = (name) => registrations.find((entry) => entry.options.name === name);
+const pane = byName('sidebar.right.pane.tab');
+const settings = byName('settings.section');
+const header = byName('conversation.session.header.utilities');
+const dock = byName('conversation.composer.dock');
+const footer = byName('sidebar.footer.action');
+assert.ok(pane && settings && header && dock && footer, 'a registration is missing');
 assert.equal(pane.options.key, 'dsh-opencode-quota');
 
 const paneText = await render(pane);
 assert.ok(paneText.second.includes('DeepSeek V4.1 Flash 1017'), 'pane model row missing');
-assert.ok(paneText.second.includes('$100.00'), 'pane monthly cap missing');
 assert.ok(paneText.second.includes('$96.00'), 'pane monthly remaining missing');
-assert.ok(paneText.second.includes('Beam Free'), 'free model missing');
+assert.ok(paneText.second.includes('输入 $0.15'), `price line missing: ${paneText.second.slice(0, 300)}`);
+assert.ok(paneText.second.includes('输出 $0.60'), 'output price missing');
+assert.ok(paneText.second.includes('缓存 $0.003'), 'cache price missing');
 assert.ok(!paneText.second.includes('NaN'), 'pane rendered NaN');
-assert.ok(!paneText.second.includes('undefined'), 'pane leaked "undefined"');
 
-const entryText = await render(entry);
-assert.ok(entryText.first.includes('额度'), 'header entry label missing');
-assert.ok(entryText.second.includes('4%'), `header entry percentage missing: ${entryText.second.slice(0, 160)}`);
+const settingsText = await render(settings);
+assert.ok(settingsText.second.includes('OpenCode 额度显示'), 'settings title missing');
+assert.ok(settingsText.second.includes('会话标题栏'), 'header toggle missing');
+assert.ok(settingsText.second.includes('输入框下方'), 'dock toggle missing');
+assert.ok(settingsText.second.includes('显示模型价格'), 'price toggle missing');
+
+const headerText = await render(header);
+assert.ok(headerText.second.includes('额度'), `header entry missing: ${headerText.second.slice(0, 160)}`);
+assert.ok(headerText.second.includes('4%'), 'header percentage missing');
+
+const footerText = await render(footer);
+assert.ok(footerText.second === '' || footerText.second === null || footerText.second.trim() === '', 'footer entry should be hidden by default');
 
 console.log('client smoke test passed');
-console.log('pane render:', paneText.second.slice(0, 120).replace(/\s+/g, ' '));

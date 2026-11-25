@@ -1,7 +1,7 @@
 {
   "name": "dsh-opencode-quota",
-  "version": "1.0.2",
-  "description": "OpenCode Go quota in the DSH right sidebar: per-model monthly caps, shared 5h/week/month allowance, and an opencode_quota tool.",
+  "version": "1.1.0",
+  "description": "OpenCode Go quota in the DSH right sidebar: per-model monthly caps, shared 5h/week/month allowance, model prices, and an opencode_quota tool.",
   "type": "module",
   "license": "MIT",
   "author": "HScoffeeK",
@@ -37,7 +37,7 @@
     "assets"
   ],
   "scripts": {
-    "test": "node test/client-smoke.mjs"
+    "test": "node test/host-smoke.mjs && node test/client-smoke.mjs"
   },
   "dsh": {
     "bundle": {

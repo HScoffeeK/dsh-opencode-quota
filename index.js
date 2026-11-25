@@ -18,6 +18,8 @@
  */
 
 import { readFile } from 'node:fs/promises';
+import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 const DEFAULT_BASE_URL = 'https://opencode.ai/inference/go/v1';
@@ -246,6 +248,80 @@ async function resolveApiKey(ctx, config) {
 }
 
 /* ------------------------------------------------------------------ */
+/* preferences                                                         */
+/* ------------------------------------------------------------------ */
+
+/** Entry points and display options the settings page may change. */
+const DEFAULT_PREFS = Object.freeze({
+  entries: { header: true, dock: true, footer: false },
+  prices: { show: true },
+});
+
+function prefsDir() {
+  const home = asString(process.env.DSH_HOME) || asString(process.env.DSH_PROFILE_DIR) || tmpdir();
+  return join(home, 'cache', 'dsh-opencode-quota');
+}
+
+function prefsPath() {
+  return join(prefsDir(), 'prefs.json');
+}
+
+function asBool(value, fallback) {
+  return typeof value === 'boolean' ? value : fallback;
+}
+
+/** Accepts any stored or posted shape and returns the complete settings. */
+function normalizePrefs(value) {
+  const source = value && typeof value === 'object' ? value : {};
+  const entries = source.entries && typeof source.entries === 'object' ? source.entries : {};
+  const prices = source.prices && typeof source.prices === 'object' ? source.prices : {};
+  return {
+    entries: {
+      header: asBool(entries.header, DEFAULT_PREFS.entries.header),
+      dock: asBool(entries.dock, DEFAULT_PREFS.entries.dock),
+      footer: asBool(entries.footer, DEFAULT_PREFS.entries.footer),
+    },
+    prices: { show: asBool(prices.show, DEFAULT_PREFS.prices.show) },
+  };
+}
+
+function readPrefs() {
+  try {
+    return normalizePrefs(JSON.parse(readFileSync(prefsPath(), 'utf8')));
+  } catch {
+    return normalizePrefs(undefined);
+  }
+}
+
+/** Merge a patch into the stored settings and persist them atomically. */
+function writePrefs(patch) {
+  const current = readPrefs();
+  const incoming = patch && typeof patch === 'object' ? patch : {};
+  const next = normalizePrefs({
+    entries: { ...current.entries, ...(incoming.entries && typeof incoming.entries === 'object' ? incoming.entries : {}) },
+    prices: { ...current.prices, ...(incoming.prices && typeof incoming.prices === 'object' ? incoming.prices : {}) },
+  });
+  mkdirSync(prefsDir(), { recursive: true });
+  const file = prefsPath();
+  const tmp = `${file}.tmp`;
+  writeFileSync(tmp, JSON.stringify(next, null, 2));
+  renameSync(tmp, file);
+  return next;
+}
+
+async function readJsonBody(request, limit = 64_000) {
+  const chunks = [];
+  let total = 0;
+  for await (const chunk of request) {
+    total += chunk.length;
+    if (total > limit) throw new Error('request body is too large');
+    chunks.push(chunk);
+  }
+  if (total === 0) return null;
+  return JSON.parse(Buffer.concat(chunks).toString('utf8'));
+}
+
+/* ------------------------------------------------------------------ */
 /* remote reads                                                        */
 /* ------------------------------------------------------------------ */
 
@@ -294,6 +370,8 @@ function parseModels(body) {
       context: finite(item.limit?.context),
       priceIn: finite(textCost.input?.price),
       priceOut: finite(textCost.output?.price),
+      priceCacheRead: finite(textCost.input?.cache?.read),
+      priceCacheWrite: finite(textCost.input?.cache?.write),
       limits,
     });
   }
@@ -532,6 +610,12 @@ export function apply(ctx, config = {}) {
         training: model.training,
         zdr: model.zdr,
         context: model.context,
+        price: {
+          in: model.priceIn,
+          out: model.priceOut,
+          cacheRead: model.priceCacheRead,
+          cacheWrite: model.priceCacheWrite,
+        },
         priceIn: model.priceIn,
         priceOut: model.priceOut,
         monthlyLimit,
@@ -554,6 +638,7 @@ export function apply(ctx, config = {}) {
       usageError: raw.usageError,
       modelsError: raw.modelsError,
       windows: WINDOW_SHARE,
+      prefs: readPrefs(),
       models,
     };
   }
@@ -620,6 +705,49 @@ export function apply(ctx, config = {}) {
           plan,
           key: state.cache?.key ?? { configured: false, source: null },
         });
+      }
+    },
+  }));
+
+  /* ----- preferences read/write for the settings page ----- */
+
+  ctx.effect(() => ctx.webServer.register({
+    kind: 'exact',
+    path: '/opencode-quota/api/prefs',
+    handler: async (request, response) => {
+      const rejected = rejectionStatus(request);
+      if (rejected !== undefined) {
+        sendJson(response, rejected, {
+          ok: false,
+          error: rejected === 401
+            ? 'DSH login required: reopen the URL the host printed at startup.'
+            : 'This request came from an untrusted origin and was refused.',
+        });
+        return;
+      }
+      const method = (request.method || 'GET').toUpperCase();
+      if (method === 'GET') {
+        sendJson(response, 200, { ok: true, prefs: readPrefs() });
+        return;
+      }
+      if (method !== 'POST') {
+        response.writeHead(405, { allow: 'GET, POST' });
+        response.end();
+        return;
+      }
+      if (!sameOrigin(request)) {
+        sendJson(response, 403, { ok: false, error: 'cross-origin requests are refused' });
+        return;
+      }
+      try {
+        const patch = await readJsonBody(request);
+        if (!patch || typeof patch !== 'object' || Array.isArray(patch)) {
+          sendJson(response, 400, { ok: false, error: 'expected a JSON object' });
+          return;
+        }
+        sendJson(response, 200, { ok: true, prefs: writePrefs(patch) });
+      } catch (error) {
+        sendJson(response, 400, { ok: false, error: messageOf(error) });
       }
     },
   }));

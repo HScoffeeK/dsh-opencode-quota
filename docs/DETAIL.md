@@ -4,14 +4,16 @@ Shows, inside the right sidebar of DeepSeek Harness, what each OpenCode Go model
 
 ## Where it appears
 
-- **Session header → `额度 4%`** — a small button in the conversation header's utility row. The percentage is the shared monthly allowance already used; clicking it opens the right sidebar on the OpenCode quota page.
+- **Session header / composer dock / sidebar footer → `额度 X%`** — three optional clickable entries. Each shows the shared monthly allowance already used and opens the right sidebar on the OpenCode quota page.
 - **Right sidebar → `OpenCode 额度` tab** — the page itself. It also contributes a card to the right sidebar's guide, so expanding the sidebar offers the page there too.
+- **Settings → `OpenCode 额度显示`** — toggles for the three entries and for model prices; every change is saved on the Host immediately.
 - **`opencode_quota` tool** — the same numbers as text, for questions like "how much OpenCode quota is left" or "which model still has room".
 
 ## What the page shows
 
 - The shared 5-hour / weekly / monthly allowance, with percentages and reset times.
 - Every Go model with its monthly cap for the selected plan (Go, Go Plus, Go Teams) and the amount left this month, this week, and in the current 5-hour window.
+- Each model's **input / output / cache-read (and cache-write when priced) USD price per 1M tokens**, read from the public catalog.
 - Plan switch, refresh, and a source/footer line naming the credential that was used.
 
 Every model shares one allowance. A model's remaining amount is that shared percentage applied to the model's own monthly cap, which is the same relationship the OpenCode Console uses when it prints per-model monthly limits.

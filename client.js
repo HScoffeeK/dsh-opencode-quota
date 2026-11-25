@@ -10,11 +10,29 @@ window.__ModuleLoader__.load({
     const PLAN_STORAGE_KEY = 'dsh.opencode-quota.plan';
     const bridge = { openTab: null };
 
+    const DEFAULT_PREFS = {
+      entries: { header: true, dock: true, footer: false },
+      prices: { show: true },
+    };
+
     const EN = {
       'section.label': 'OpenCode quota',
       'entry.label': 'Quota',
       'guide.description': 'OpenCode Go model quotas and the remaining shared allowance',
       'pane.title': 'OpenCode quota',
+      'settings.label': 'OpenCode quota display',
+      'settings.title': 'OpenCode quota display',
+      'settings.hint': 'Pick where the quota entry appears. Each change is saved immediately.',
+      'settings.header': 'Session header',
+      'settings.dock': 'Below the composer',
+      'settings.footer': 'Sidebar footer',
+      'settings.prices': 'Show model prices',
+      'settings.open': 'Open the quota page',
+      'settings.saved': 'Saved',
+      'price.in': 'in',
+      'price.out': 'out',
+      'price.cache': 'cache',
+      'price.cacheWrite': 'cache write',
       'page.subtitle': 'Each OpenCode Go model monthly cap and the shared allowance that is left.',
       'page.plan': 'Plan',
       'page.refresh': 'Refresh',
@@ -48,6 +66,19 @@ window.__ModuleLoader__.load({
       'entry.label': '额度',
       'guide.description': 'OpenCode Go 各模型额度与共享额度剩余',
       'pane.title': 'OpenCode 额度',
+      'settings.label': 'OpenCode 额度显示',
+      'settings.title': 'OpenCode 额度显示',
+      'settings.hint': '选择额度入口出现的位置，每次修改都会立即保存。',
+      'settings.header': '会话标题栏',
+      'settings.dock': '输入框下方',
+      'settings.footer': '侧边栏底部',
+      'settings.prices': '显示模型价格',
+      'settings.open': '打开额度页',
+      'settings.saved': '已保存',
+      'price.in': '输入',
+      'price.out': '输出',
+      'price.cache': '缓存',
+      'price.cacheWrite': '缓存写',
       'page.subtitle': '查看 OpenCode Go 每个模型的月度上限，以及共享额度还剩多少。',
       'page.plan': '套餐',
       'page.refresh': '刷新',
@@ -158,6 +189,87 @@ window.__ModuleLoader__.load({
       }
     }
 
+    /* ------------------------------------------------------------------ */
+    /* preferences (shared by every entry point)                           */
+    /* ------------------------------------------------------------------ */
+
+    const prefsStore = {
+      value: DEFAULT_PREFS,
+      pending: null,
+      listeners: new Set(),
+    };
+
+    function notifyPrefs() {
+      for (const listener of [...prefsStore.listeners]) {
+        try {
+          listener();
+        } catch {
+          /* ignore */
+        }
+      }
+    }
+
+    async function loadPrefs(force = false) {
+      if (!force && prefsStore.loaded) return prefsStore.value;
+      if (!prefsStore.pending) {
+        prefsStore.pending = (async () => {
+          try {
+            const response = await fetch(api('/opencode-quota/api/prefs'), { cache: 'no-store' });
+            const body = await response.json();
+            if (body && body.ok && body.prefs) {
+              prefsStore.value = body.prefs;
+              prefsStore.loaded = true;
+              notifyPrefs();
+            }
+          } catch {
+            /* keep the defaults */
+          } finally {
+            prefsStore.pending = null;
+          }
+        })();
+      }
+      await prefsStore.pending;
+      return prefsStore.value;
+    }
+
+    function usePrefs() {
+      const [value, setValue] = React.useState(prefsStore.value);
+      React.useEffect(() => {
+        const listener = () => setValue(prefsStore.value);
+        prefsStore.listeners.add(listener);
+        if (!prefsStore.loaded) void loadPrefs();
+        return () => {
+          prefsStore.listeners.delete(listener);
+        };
+      }, []);
+      return value;
+    }
+
+    async function savePrefs(patch) {
+      try {
+        const response = await fetch(api('/opencode-quota/api/prefs'), {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify(patch),
+          cache: 'no-store',
+        });
+        const body = await response.json();
+        if (body && body.ok && body.prefs) {
+          prefsStore.value = body.prefs;
+          prefsStore.loaded = true;
+          notifyPrefs();
+          return true;
+        }
+      } catch {
+        /* ignore */
+      }
+      return false;
+    }
+
+    /* ------------------------------------------------------------------ */
+    /* formatting                                                          */
+    /* ------------------------------------------------------------------ */
+
     function readPlan() {
       try {
         const value = window.localStorage.getItem(PLAN_STORAGE_KEY);
@@ -182,6 +294,14 @@ window.__ModuleLoader__.load({
       return `$${value.toFixed(2)}`;
     }
 
+    function priceValue(value) {
+      if (typeof value !== 'number' || !Number.isFinite(value)) return '—';
+      if (value === 0) return '$0';
+      if (value >= 0.01) return `$${value.toFixed(2)}`;
+      const text = value.toFixed(4).replace(/0+$/, '').replace(/\.$/, '');
+      return `$${text}`;
+    }
+
     function percentText(value) {
       if (typeof value !== 'number' || !Number.isFinite(value)) return '—';
       return `${Math.round(value)}%`;
@@ -202,6 +322,10 @@ window.__ModuleLoader__.load({
       if (percent >= 70) return 'warn';
       return 'ok';
     }
+
+    /* ------------------------------------------------------------------ */
+    /* quota data                                                          */
+    /* ------------------------------------------------------------------ */
 
     function useQuota() {
       const [snapshot, setSnapshot] = React.useState(null);
@@ -282,8 +406,10 @@ window.__ModuleLoader__.load({
         border: 1px solid var(--dsw-alias-border-l1); outline: none;
       }
       .ocq-search { min-width: 140px; flex: 1 1 140px; }
-      .ocq-select:focus-visible, .ocq-search:focus-visible, .ocq-button:focus-visible {
-        border-color: var(--dsw-alias-brand-primary); box-shadow: 0 0 0 2px color-mix(in srgb, var(--dsw-alias-brand-primary) 24%, transparent);
+      .ocq-select:focus-visible, .ocq-search:focus-visible, .ocq-button:focus-visible,
+      .ocq-entry:focus-visible, .ocq-foot:focus-visible, .ocq-pill:focus-visible {
+        border-color: var(--dsw-alias-brand-primary);
+        box-shadow: 0 0 0 2px color-mix(in srgb, var(--dsw-alias-brand-primary) 24%, transparent);
       }
       .ocq-button {
         height: 28px; padding: 0 11px; border-radius: 8px; cursor: pointer; font-size: 12px;
@@ -311,12 +437,13 @@ window.__ModuleLoader__.load({
       .ocq-table thead th { position: sticky; top: 0; z-index: 1; background: var(--dsw-alias-bg-layer-2); color: var(--dsw-alias-label-secondary); font-weight: 500; font-size: 12px; text-align: right; padding: 8px 10px; white-space: nowrap; border-bottom: 1px solid var(--dsw-alias-border-l1); }
       .ocq-table thead th.is-name { text-align: left; }
       .ocq-table tbody td { padding: 8px 10px; border-bottom: 1px solid var(--dsw-alias-border-l1); text-align: right; white-space: nowrap; }
-      .ocq-table tbody td.is-name { text-align: left; max-width: 240px; overflow: hidden; text-overflow: ellipsis; }
+      .ocq-table tbody td.is-name { text-align: left; max-width: 260px; overflow: hidden; text-overflow: ellipsis; }
       .ocq-table tbody tr:last-child td { border-bottom: none; }
       .ocq-table tbody tr:hover td { background: var(--dsw-alias-bg-layer-2); }
       .ocq-model { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
       .ocq-model-name { font-weight: 500; overflow: hidden; text-overflow: ellipsis; }
       .ocq-model-id { font-size: 11px; color: var(--dsw-alias-label-tertiary); overflow: hidden; text-overflow: ellipsis; }
+      .ocq-model-price { font-size: 11px; color: var(--dsw-alias-label-tertiary); font-variant-numeric: tabular-nums; }
       .ocq-tag { display: inline-block; padding: 1px 6px; border-radius: 999px; font-size: 11px; line-height: 16px; color: var(--dsw-alias-label-secondary); background: var(--dsw-alias-bg-layer-2); }
       .ocq-tag.is-free { color: var(--dsw-alias-state-success-primary); background: color-mix(in srgb, var(--dsw-alias-state-success-primary) 14%, transparent); }
       .ocq-low { color: var(--dsw-alias-state-warn-primary); }
@@ -324,22 +451,25 @@ window.__ModuleLoader__.load({
       .ocq-mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
       .ocq-empty { padding: 20px 12px; text-align: center; font-size: 13px; color: var(--dsw-alias-label-secondary); }
       .ocq-pane { display: flex; flex-direction: column; gap: 12px; padding: 14px; height: 100%; overflow: auto; box-sizing: border-box; }
-      .ocq-entry {
+      .ocq-entry, .ocq-foot, .ocq-pill {
         display: inline-flex; align-items: center; gap: 6px; height: 26px; padding: 0 9px;
         border-radius: 8px; cursor: pointer; font-size: 12px;
         color: var(--dsw-alias-label-secondary);
         background: var(--dsw-alias-bg-layer-1); border: 1px solid var(--dsw-alias-border-l1);
       }
-      .ocq-entry:hover { color: var(--dsw-alias-label-primary); background: var(--dsw-alias-bg-layer-2); }
-      .ocq-entry:focus-visible {
-        outline: none; border-color: var(--dsw-alias-brand-primary);
-        box-shadow: 0 0 0 2px color-mix(in srgb, var(--dsw-alias-brand-primary) 24%, transparent);
-      }
+      .ocq-entry:hover, .ocq-foot:hover, .ocq-pill:hover { color: var(--dsw-alias-label-primary); background: var(--dsw-alias-bg-layer-2); }
+      .ocq-foot { border-radius: 6px; }
+      .ocq-pill { border-radius: 999px; height: 24px; font-size: 11px; }
       .ocq-entry-value { font-variant-numeric: tabular-nums; color: var(--dsw-alias-label-primary); }
-      .ocq-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--dsw-alias-state-success-primary); }
+      .ocq-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--dsw-alias-state-success-primary); flex: none; }
       .ocq-dot.is-warn { background: var(--dsw-alias-state-warn-primary); }
       .ocq-dot.is-danger { background: var(--dsw-alias-state-error-primary); }
       .ocq-dot.is-idle { background: var(--dsw-alias-state-idle-primary); }
+      .ocq-settings { display: flex; flex-direction: column; gap: 14px; padding: 4px 0; color: var(--dsw-alias-label-primary); }
+      .ocq-check { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--dsw-alias-label-primary); cursor: pointer; }
+      .ocq-check input { width: 15px; height: 15px; accent-color: var(--dsw-alias-brand-primary); }
+      .ocq-row { display: flex; align-items: center; gap: 10px; }
+      .ocq-hint { font-size: 12px; color: var(--dsw-alias-label-tertiary); }
       @media (max-width: 640px) {
         .ocq-table thead th.is-optional, .ocq-table tbody td.is-optional { display: none; }
       }
@@ -357,8 +487,22 @@ window.__ModuleLoader__.load({
         h('div', { className: 'ocq-window-foot' }, stateLabel || ''));
     }
 
+    function priceLine(model) {
+      const price = model.price || {};
+      const parts = [
+        `${pick('price.in')} ${priceValue(price.in)}`,
+        `${pick('price.out')} ${priceValue(price.out)}`,
+        `${pick('price.cache')} ${priceValue(price.cacheRead)}`,
+      ];
+      if (typeof price.cacheWrite === 'number') {
+        parts.push(`${pick('price.cacheWrite')} ${priceValue(price.cacheWrite)}`);
+      }
+      return parts.join(' · ');
+    }
+
     function QuotaPanel() {
       const quota = useQuota();
+      const prefs = usePrefs();
       const { snapshot, error, busy, load } = quota;
       const [query, setQuery] = React.useState('');
 
@@ -372,6 +516,7 @@ window.__ModuleLoader__.load({
       const plans = (snapshot && Array.isArray(snapshot.plans) && snapshot.plans.length > 0)
         ? snapshot.plans
         : [{ id: 'go', label: 'Go' }, { id: 'go-plus', label: 'Go Plus' }, { id: 'go-teams', label: 'Go Teams' }];
+      const showPrices = !prefs || !prefs.prices || prefs.prices.show !== false;
 
       const toolbar = h('div', { className: 'ocq-toolbar' },
         h('label', { className: 'ocq-field' },
@@ -460,7 +605,8 @@ window.__ModuleLoader__.load({
                   h('td', { className: 'is-name', key: 'name' },
                     h('div', { className: 'ocq-model' },
                       h('span', { className: 'ocq-model-name' }, model.name),
-                      h('span', { className: 'ocq-model-id ocq-mono' }, model.id))),
+                      h('span', { className: 'ocq-model-id ocq-mono' }, model.id),
+                      showPrices ? h('span', { className: 'ocq-model-price' }, priceLine(model)) : null)),
                   h('td', { key: 'cap' }, model.free
                     ? h('span', { className: 'ocq-tag is-free' }, pick('page.free'))
                     : money(model.monthlyLimit)),
@@ -499,7 +645,7 @@ window.__ModuleLoader__.load({
           h(QuotaPanel)));
     }
 
-    function QuotaButton() {
+    function QuotaEntry(props) {
       const quota = useQuota();
       const monthly = quota.snapshot && quota.snapshot.usage && quota.snapshot.usage.monthly;
       const percent = monthly ? monthly.percent : null;
@@ -511,16 +657,98 @@ window.__ModuleLoader__.load({
           /* the right sidebar is unavailable in this composition */
         }
       };
+      return h('button', {
+        className: props.variant === 'dock' ? 'ocq-pill' : props.variant === 'footer' ? 'ocq-foot' : 'ocq-entry',
+        type: 'button',
+        title: `${pick('pane.title')} · ${percentText(percent)}`,
+        onClick: open,
+      },
+        h('span', { className: `ocq-dot is-${tone}` }),
+        h('span', null, pick('entry.label')),
+        h('span', { className: 'ocq-entry-value' }, percentText(percent)));
+    }
+
+    function HeaderEntry() {
+      const prefs = usePrefs();
+      if (!prefs || !prefs.entries || prefs.entries.header === false) return null;
+      return h(QuotaEntry, { variant: 'header' });
+    }
+
+    function DockEntry() {
+      const prefs = usePrefs();
+      if (!prefs || !prefs.entries || prefs.entries.dock === false) return null;
+      return h(QuotaEntry, { variant: 'dock' });
+    }
+
+    function FooterEntry() {
+      const prefs = usePrefs();
+      if (!prefs || !prefs.entries || prefs.entries.footer !== true) return null;
+      return h(QuotaEntry, { variant: 'footer' });
+    }
+
+    function QuotaSettings() {
+      const prefs = usePrefs();
+      const [saving, setSaving] = React.useState(false);
+      const [savedAt, setSavedAt] = React.useState(0);
+
+      const toggle = async (group, key) => {
+        if (!prefs) return;
+        const next = {
+          entries: { ...prefs.entries },
+          prices: { ...prefs.prices },
+        };
+        if (group === 'entries') next.entries[key] = !next.entries[key];
+        if (group === 'prices') next.prices[key] = !next.prices[key];
+        setSaving(true);
+        const ok = await savePrefs({ [group]: next[group] });
+        setSaving(false);
+        if (ok) setSavedAt(Date.now());
+      };
+
+      const open = () => {
+        try {
+          if (bridge.openTab) bridge.openTab();
+        } catch {
+          /* unavailable */
+        }
+      };
+
+      if (!prefs) return h('div', { className: 'ocq-empty' }, pick('page.loading'));
+
       return h(React.Fragment, null,
         h(Styles),
-        h('button', {
-          className: 'ocq-entry', type: 'button',
-          title: `${pick('pane.title')} · ${percentText(percent)}`,
-          onClick: open,
-        },
-          h('span', { className: `ocq-dot is-${tone}` }),
-          h('span', null, pick('entry.label')),
-          h('span', { className: 'ocq-entry-value' }, percentText(percent))));
+        h('div', { className: 'ocq-settings' },
+          h('div', { className: 'ocq-head' },
+            h('h2', { className: 'ocq-title' }, pick('settings.title')),
+            h('p', { className: 'ocq-subtitle' }, pick('settings.hint'))),
+          h('label', { className: 'ocq-check' },
+            h('input', {
+              type: 'checkbox', checked: prefs.entries.header !== false,
+              onChange: () => toggle('entries', 'header'),
+            }),
+            h('span', null, pick('settings.header'))),
+          h('label', { className: 'ocq-check' },
+            h('input', {
+              type: 'checkbox', checked: prefs.entries.dock !== false,
+              onChange: () => toggle('entries', 'dock'),
+            }),
+            h('span', null, pick('settings.dock'))),
+          h('label', { className: 'ocq-check' },
+            h('input', {
+              type: 'checkbox', checked: prefs.entries.footer === true,
+              onChange: () => toggle('entries', 'footer'),
+            }),
+            h('span', null, pick('settings.footer'))),
+          h('label', { className: 'ocq-check' },
+            h('input', {
+              type: 'checkbox', checked: prefs.prices.show !== false,
+              onChange: () => toggle('prices', 'show'),
+            }),
+            h('span', null, pick('settings.prices'))),
+          h('div', { className: 'ocq-row' },
+            h('button', { className: 'ocq-button', type: 'button', onClick: open }, pick('settings.open')),
+            saving ? h('span', { className: 'ocq-hint' }, pick('page.loading')) : null,
+            !saving && savedAt ? h('span', { className: 'ocq-hint' }, pick('settings.saved')) : null)));
     }
 
     return {
@@ -541,21 +769,44 @@ window.__ModuleLoader__.load({
         };
 
         const mount = (scope) => {
+          let slots;
           try {
-            const slots = scope.slots;
-            if (!slots || typeof slots.inject !== 'function') return;
-
-            scope.effect(() => slots.inject('conversation.session.header.utilities', () => slots.register({
-              name: 'conversation.session.header.utilities',
-              id: 'opencode-quota-entry',
-              order: 30,
-            }, () => h(QuotaButton))));
-          } catch (failure) {
-            warn('header entry', failure);
+            slots = scope.slots;
+          } catch {
+            slots = undefined;
           }
+          if (!slots || typeof slots.inject !== 'function') return;
+
+          const register = (label, slot, options, component) => {
+            try {
+              scope.effect(() => slots.inject(slot, () => slots.register({ ...options, name: slot }, component)));
+            } catch (failure) {
+              warn(label, failure);
+            }
+          };
+
+          register('settings page', 'settings.section', {
+            id: 'opencode-quota-settings',
+            order: 521,
+            label: () => pick('settings.label'),
+          }, () => h(QuotaSettings));
+
+          register('header entry', 'conversation.session.header.utilities', {
+            id: 'opencode-quota-entry',
+            order: 30,
+          }, () => h(HeaderEntry));
+
+          register('dock entry', 'conversation.composer.dock', {
+            id: 'opencode-quota-dock',
+            order: 40,
+          }, () => h(DockEntry));
+
+          register('footer entry', 'sidebar.footer.action', {
+            id: 'opencode-quota-footer',
+            order: 20,
+          }, () => h(FooterEntry));
 
           try {
-            const slots = scope.slots;
             scope.effect(() => slots.inject('sidebar.right.pane.tab', () => slots.register({
               name: 'sidebar.right.pane.tab',
               key: TYPE_ID,
