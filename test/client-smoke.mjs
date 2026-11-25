@@ -223,8 +223,11 @@ assert.ok(settingsText.second.includes('输入框下方'), 'dock toggle missing'
 assert.ok(settingsText.second.includes('显示模型价格'), 'price toggle missing');
 
 const headerText = await render(header);
-assert.ok(headerText.second.includes('额度'), `header entry missing: ${headerText.second.slice(0, 160)}`);
 assert.ok(headerText.second.includes('4%'), 'header percentage missing');
+
+const dockText = await render(dock);
+assert.ok(dockText.second.includes('额度'), `dock entry label missing: ${dockText.second.slice(0, 160)}`);
+assert.ok(dockText.second.includes('4%'), 'dock percentage missing');
 
 const footerText = await render(footer);
 assert.ok(footerText.second === '' || footerText.second === null || footerText.second.trim() === '', 'footer entry should be hidden by default');

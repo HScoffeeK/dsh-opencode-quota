@@ -109,42 +109,37 @@ window.__ModuleLoader__.load({
       'page.error': '读取额度失败',
     };
 
-    let translate = null;
-    let lang = 'zh';
+    let localeCtx = null;
 
-    function pick(key) {
-      if (translate) {
+    /** Read the live UI language on every render; never cache a stale one. */
+    function currentLang() {
+      if (localeCtx) {
         try {
-          const value = translate(key);
-          if (typeof value === 'string' && value && value !== key) return value;
+          const snapshot = localeCtx.locale?.getLocale?.();
+          const id = String(snapshot?.id ?? snapshot?.locale ?? snapshot?.language ?? '');
+          if (/^en/i.test(id)) return 'en';
+          if (/^zh/i.test(id)) return 'zh';
         } catch {
-          /* fall back to the local dictionary */
+          /* fall through */
         }
-      }
-      return (lang === 'en' ? EN : ZH)[key] ?? key;
-    }
-
-    function detectLang(ctx) {
-      try {
-        const snapshot = ctx.locale?.getLocale?.();
-        const id = String(snapshot?.id ?? snapshot?.locale ?? snapshot?.language ?? '');
-        if (/^en/i.test(id)) return 'en';
-        if (/^zh/i.test(id)) return 'zh';
-      } catch {
-        /* default below */
       }
       try {
         const id = String(document.documentElement?.lang || navigator.language || '');
         if (/^en/i.test(id)) return 'en';
         if (/^zh/i.test(id)) return 'zh';
       } catch {
-        /* default below */
+        /* fall through */
       }
       return 'zh';
     }
 
+    function pick(key) {
+      const dict = currentLang() === 'en' ? EN : ZH;
+      return dict[key] ?? EN[key] ?? key;
+    }
+
     function installLocale(ctx) {
-      lang = detectLang(ctx);
+      localeCtx = ctx;
       if (!ctx.locale || typeof ctx.locale.register !== 'function') return () => {};
       const ids = new Set(['en', 'zh-CN']);
       try {
@@ -164,11 +159,6 @@ window.__ModuleLoader__.load({
           /* another registration style; the local dictionary still works */
         }
       }
-      try {
-        if (typeof ctx.locale.bind === 'function') translate = ctx.locale.bind(NS);
-      } catch {
-        translate = null;
-      }
       return () => {
         for (const off of disposers) {
           try {
@@ -177,7 +167,7 @@ window.__ModuleLoader__.load({
             /* ignore */
           }
         }
-        translate = null;
+        localeCtx = null;
       };
     }
 
@@ -504,8 +494,8 @@ window.__ModuleLoader__.load({
       .ocq-empty { padding: 20px 12px; text-align: center; font-size: 13px; color: var(--dsw-alias-label-secondary); }
       .ocq-pane { display: flex; flex-direction: column; gap: 12px; padding: 14px; height: 100%; overflow: auto; box-sizing: border-box; }
       .ocq-entry, .ocq-foot, .ocq-pill {
-        display: inline-flex; align-items: center; gap: 6px; height: 26px; padding: 0 9px;
-        border-radius: 8px; cursor: pointer; font-size: 12px;
+        display: inline-flex; align-items: center; gap: 5px; height: 26px; padding: 0 8px;
+        border-radius: 8px; cursor: pointer; font-size: 12px; white-space: nowrap; flex-wrap: nowrap;
         color: var(--dsw-alias-label-secondary);
         background: var(--dsw-alias-bg-layer-1); border: 1px solid var(--dsw-alias-border-l1);
       }
@@ -750,16 +740,18 @@ window.__ModuleLoader__.load({
           /* the right sidebar is unavailable in this composition */
         }
       };
-      return h('button', {
-        className: props.variant === 'dock' ? 'ocq-pill' : props.variant === 'footer' ? 'ocq-foot' : 'ocq-entry',
-        type: 'button',
-        title: `${pick('pane.title')} · ${percentText(percent)}`,
-        onClick: open,
-      },
-        h('span', { className: `ocq-dot is-${tone}` }),
-        h(GaugeIcon, { size: 13 }),
-        h('span', null, pick('entry.label')),
-        h('span', { className: 'ocq-entry-value' }, percentText(percent)));
+      return h(React.Fragment, null,
+        h(Styles),
+        h('button', {
+          className: props.variant === 'dock' ? 'ocq-pill' : props.variant === 'footer' ? 'ocq-foot' : 'ocq-entry',
+          type: 'button',
+          title: `${pick('pane.title')} · ${percentText(percent)}`,
+          onClick: open,
+        },
+          h('span', { className: `ocq-dot is-${tone}` }),
+          h(GaugeIcon, { size: 13 }),
+          props.variant === 'dock' ? h('span', null, pick('entry.label')) : null,
+          h('span', { className: 'ocq-entry-value' }, percentText(percent))));
     }
 
     function HeaderEntry() {
