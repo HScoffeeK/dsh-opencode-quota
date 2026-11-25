@@ -574,6 +574,9 @@ export function apply(ctx, config = {}) {
     return state.cache;
   }
 
+  /** Per raw snapshot and plan: the expensive model projection is reused. */
+  const snapshotMemo = new WeakMap();
+
   function snapshot(raw, plan) {
     if (!raw) {
       return {
@@ -582,8 +585,17 @@ export function apply(ctx, config = {}) {
         error: 'the OpenCode quota has not been read yet',
         plan,
         key: { configured: false, source: null },
+        prefs: readPrefs(),
       };
     }
+    let byPlan = snapshotMemo.get(raw);
+    if (byPlan === undefined) {
+      byPlan = new Map();
+      snapshotMemo.set(raw, byPlan);
+    }
+    const cached = byPlan.get(plan);
+    if (cached !== undefined) return { ...cached, prefs: readPrefs() };
+    const build = () => {
     const usage = raw.usage;
     const percentOf = (key) => {
       const row = usage?.[key];
@@ -638,9 +650,13 @@ export function apply(ctx, config = {}) {
       usageError: raw.usageError,
       modelsError: raw.modelsError,
       windows: WINDOW_SHARE,
-      prefs: readPrefs(),
       models,
     };
+    };
+
+    const body = build();
+    byPlan.set(plan, body);
+    return { ...body, prefs: readPrefs() };
   }
 
   /* ----- HTTP route the page reads ----- */

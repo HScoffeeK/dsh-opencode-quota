@@ -27,6 +27,7 @@ window.__ModuleLoader__.load({
       'settings.dock': 'Below the composer',
       'settings.footer': 'Sidebar footer',
       'settings.prices': 'Show model prices',
+      'settings.pricesHint': 'Input, output and cache prices per 1M tokens',
       'settings.open': 'Open the quota page',
       'settings.saved': 'Saved',
       'price.in': 'in',
@@ -73,6 +74,7 @@ window.__ModuleLoader__.load({
       'settings.dock': '输入框下方',
       'settings.footer': '侧边栏底部',
       'settings.prices': '显示模型价格',
+      'settings.pricesHint': '表格里显示输入 / 输出 / 缓存价格（每 1M tokens）',
       'settings.open': '打开额度页',
       'settings.saved': '已保存',
       'price.in': '输入',
@@ -327,65 +329,110 @@ window.__ModuleLoader__.load({
     /* quota data                                                          */
     /* ------------------------------------------------------------------ */
 
-    function useQuota() {
-      const [snapshot, setSnapshot] = React.useState(null);
-      const [plan, setPlanState] = React.useState(() => readPlan());
-      const [busy, setBusy] = React.useState(false);
-      const [error, setError] = React.useState(null);
+    /* ------------------------------------------------------------------ */
+    /* shared quota store: one fetch for every mounted entry point         */
+    /* ------------------------------------------------------------------ */
 
-      const load = React.useCallback(async (force) => {
-        const wanted = plan || readPlan();
-        setBusy(true);
+    const quotaStore = {
+      value: null,
+      error: null,
+      at: 0,
+      pending: null,
+      listeners: new Set(),
+      timer: null,
+      consumers: 0,
+    };
+
+    function notifyQuota() {
+      for (const listener of [...quotaStore.listeners]) {
         try {
-          const params = new URLSearchParams();
-          if (wanted) params.set('plan', wanted);
-          if (force) params.set('refresh', '1');
+          listener();
+        } catch {
+          /* ignore */
+        }
+      }
+    }
+
+    function fetchQuota(force = false) {
+      if (!force && quotaStore.value && Date.now() - quotaStore.at < 55_000) {
+        return Promise.resolve(quotaStore.value);
+      }
+      if (quotaStore.pending) return quotaStore.pending;
+      const plan = readPlan();
+      const params = new URLSearchParams();
+      if (plan) params.set('plan', plan);
+      if (force) params.set('refresh', '1');
+      quotaStore.pending = (async () => {
+        try {
           const response = await fetch(`${api('/opencode-quota/api/snapshot')}?${params.toString()}`, { cache: 'no-store' });
           const body = await response.json();
-          setSnapshot(body);
-          setError(body && body.ok === false ? (body.error || 'unavailable') : null);
-          if (body && typeof body.plan === 'string' && body.plan && body.plan !== plan) {
-            setPlanState(body.plan);
-            writePlan(body.plan);
-          }
+          quotaStore.value = body;
+          quotaStore.error = body && body.ok === false ? (body.error || 'unavailable') : null;
+          quotaStore.at = Date.now();
+          if (body && typeof body.plan === 'string' && body.plan && body.plan !== plan) writePlan(body.plan);
         } catch (failure) {
-          setError(String(failure && failure.message ? failure.message : failure));
+          quotaStore.error = String(failure && failure.message ? failure.message : failure);
         } finally {
-          setBusy(false);
+          quotaStore.pending = null;
+          notifyQuota();
         }
-      }, [plan]);
+        return quotaStore.value;
+      })();
+      notifyQuota();
+      return quotaStore.pending;
+    }
+
+    function useQuota() {
+      const [state, setState] = React.useState(() => ({
+        value: quotaStore.value,
+        error: quotaStore.error,
+        busy: Boolean(quotaStore.pending),
+      }));
 
       React.useEffect(() => {
-        load(false);
-      }, [load]);
-
-      React.useEffect(() => {
-        const timer = window.setInterval(() => {
-          if (!document.hidden) load(false);
-        }, 60_000);
+        quotaStore.consumers += 1;
+        const listener = () => {
+          setState({
+            value: quotaStore.value,
+            error: quotaStore.error,
+            busy: Boolean(quotaStore.pending),
+          });
+        };
+        quotaStore.listeners.add(listener);
+        void fetchQuota(false);
+        if (quotaStore.timer === null) {
+          quotaStore.timer = window.setInterval(() => {
+            if (!document.hidden) void fetchQuota(false);
+          }, 60_000);
+        }
         const onVisible = () => {
-          if (!document.hidden) load(false);
+          if (!document.hidden) void fetchQuota(false);
         };
         document.addEventListener('visibilitychange', onVisible);
         return () => {
-          window.clearInterval(timer);
+          quotaStore.listeners.delete(listener);
           document.removeEventListener('visibilitychange', onVisible);
+          quotaStore.consumers -= 1;
+          if (quotaStore.consumers <= 0 && quotaStore.timer !== null) {
+            window.clearInterval(quotaStore.timer);
+            quotaStore.timer = null;
+          }
         };
-      }, [load]);
+      }, []);
 
       const setPlan = (next) => {
         writePlan(next);
-        setPlanState(next);
+        quotaStore.at = 0;
+        void fetchQuota(false);
       };
 
       return {
-        snapshot,
-        error,
-        busy,
-        load,
-        plan,
+        snapshot: state.value,
+        error: state.error,
+        busy: state.busy,
+        load: (force) => fetchQuota(force === true),
         setPlan,
-        activePlan: plan || (snapshot && snapshot.plan) || 'go',
+        activePlan: readPlan() || (state.value && state.value.plan) || 'go',
       };
     }
 
@@ -425,7 +472,7 @@ window.__ModuleLoader__.load({
       .ocq-window-label { font-size: 12px; color: var(--dsw-alias-label-secondary); }
       .ocq-window-value { font-size: 18px; font-weight: 600; font-variant-numeric: tabular-nums; }
       .ocq-bar { height: 6px; border-radius: 999px; background: var(--dsw-alias-bg-layer-2); overflow: hidden; }
-      .ocq-bar > span { display: block; height: 100%; border-radius: inherit; background: var(--dsw-alias-brand-primary); }
+      .ocq-bar > span { display: block; height: 100%; border-radius: inherit; background: linear-gradient(90deg, var(--dsw-alias-brand-primary), color-mix(in srgb, var(--dsw-alias-brand-primary) 55%, var(--dsw-alias-label-primary))); transition: width .35s ease; }
       .ocq-bar.is-warn > span { background: var(--dsw-alias-state-warn-primary); }
       .ocq-bar.is-danger > span { background: var(--dsw-alias-state-error-primary); }
       .ocq-window-foot { font-size: 11px; color: var(--dsw-alias-label-tertiary); min-height: 14px; }
@@ -440,10 +487,15 @@ window.__ModuleLoader__.load({
       .ocq-table tbody td.is-name { text-align: left; max-width: 260px; overflow: hidden; text-overflow: ellipsis; }
       .ocq-table tbody tr:last-child td { border-bottom: none; }
       .ocq-table tbody tr:hover td { background: var(--dsw-alias-bg-layer-2); }
+      .ocq-table tbody tr:nth-child(even) td { background: color-mix(in srgb, var(--dsw-alias-bg-layer-2) 40%, transparent); }
+      .ocq-table tbody tr:nth-child(even):hover td { background: var(--dsw-alias-bg-layer-2); }
       .ocq-model { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
       .ocq-model-name { font-weight: 500; overflow: hidden; text-overflow: ellipsis; }
       .ocq-model-id { font-size: 11px; color: var(--dsw-alias-label-tertiary); overflow: hidden; text-overflow: ellipsis; }
-      .ocq-model-price { font-size: 11px; color: var(--dsw-alias-label-tertiary); font-variant-numeric: tabular-nums; }
+      .ocq-prices { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 3px; }
+      .ocq-chip { display: inline-flex; align-items: center; gap: 3px; height: 16px; padding: 0 5px; border-radius: 5px; font-size: 10.5px; line-height: 16px; color: var(--dsw-alias-label-tertiary); background: var(--dsw-alias-bg-layer-2); }
+      .ocq-chip b { font-weight: 500; color: var(--dsw-alias-label-secondary); font-variant-numeric: tabular-nums; }
+      .ocq-chip-key { opacity: .75; }
       .ocq-tag { display: inline-block; padding: 1px 6px; border-radius: 999px; font-size: 11px; line-height: 16px; color: var(--dsw-alias-label-secondary); background: var(--dsw-alias-bg-layer-2); }
       .ocq-tag.is-free { color: var(--dsw-alias-state-success-primary); background: color-mix(in srgb, var(--dsw-alias-state-success-primary) 14%, transparent); }
       .ocq-low { color: var(--dsw-alias-state-warn-primary); }
@@ -468,6 +520,30 @@ window.__ModuleLoader__.load({
       .ocq-settings { display: flex; flex-direction: column; gap: 14px; padding: 4px 0; color: var(--dsw-alias-label-primary); }
       .ocq-check { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--dsw-alias-label-primary); cursor: pointer; }
       .ocq-check input { width: 15px; height: 15px; accent-color: var(--dsw-alias-brand-primary); }
+      .ocq-switch {
+        appearance: none; -webkit-appearance: none; position: relative; flex: none;
+        width: 34px; height: 20px; margin: 0; border-radius: 999px; cursor: pointer;
+        background: var(--dsw-alias-bg-layer-2); border: 1px solid var(--dsw-alias-border-l1);
+        transition: background .15s, border-color .15s;
+      }
+      .ocq-switch::after {
+        content: ''; position: absolute; top: 2px; left: 2px; width: 14px; height: 14px;
+        border-radius: 50%; background: var(--dsw-alias-label-secondary);
+        transition: transform .15s, background .15s;
+      }
+      .ocq-switch:checked { background: var(--dsw-alias-brand-primary); border-color: var(--dsw-alias-brand-primary); }
+      .ocq-switch:checked::after { transform: translateX(14px); background: #fff; }
+      .ocq-switch:focus-visible {
+        outline: none; box-shadow: 0 0 0 2px color-mix(in srgb, var(--dsw-alias-brand-primary) 24%, transparent);
+      }
+      .ocq-setting {
+        display: flex; align-items: center; justify-content: space-between; gap: 12px;
+        padding: 10px 12px; border: 1px solid var(--dsw-alias-border-l1); border-radius: 10px;
+        background: var(--dsw-alias-bg-layer-1);
+      }
+      .ocq-setting-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+      .ocq-setting-label { font-size: 13px; color: var(--dsw-alias-label-primary); }
+      .ocq-setting-hint { font-size: 11px; color: var(--dsw-alias-label-tertiary); }
       .ocq-row { display: flex; align-items: center; gap: 10px; }
       .ocq-hint { font-size: 12px; color: var(--dsw-alias-label-tertiary); }
       @media (max-width: 640px) {
@@ -487,17 +563,34 @@ window.__ModuleLoader__.load({
         h('div', { className: 'ocq-window-foot' }, stateLabel || ''));
     }
 
-    function priceLine(model) {
+    function priceChips(model) {
       const price = model.price || {};
-      const parts = [
-        `${pick('price.in')} ${priceValue(price.in)}`,
-        `${pick('price.out')} ${priceValue(price.out)}`,
-        `${pick('price.cache')} ${priceValue(price.cacheRead)}`,
+      const chip = (key, value) => h('span', { className: 'ocq-chip', key },
+        h('span', { className: 'ocq-chip-key' }, key),
+        h('b', null, priceValue(value)));
+      const chips = [
+        chip(pick('price.in'), price.in),
+        chip(pick('price.out'), price.out),
+        chip(pick('price.cache'), price.cacheRead),
       ];
-      if (typeof price.cacheWrite === 'number') {
-        parts.push(`${pick('price.cacheWrite')} ${priceValue(price.cacheWrite)}`);
-      }
-      return parts.join(' · ');
+      if (typeof price.cacheWrite === 'number') chips.push(chip(pick('price.cacheWrite'), price.cacheWrite));
+      return h('div', { className: 'ocq-prices' }, chips);
+    }
+
+    function GaugeIcon(props) {
+      const size = props && props.size ? props.size : 14;
+      return h('svg', {
+        width: size,
+        height: size,
+        viewBox: '0 0 24 24',
+        fill: 'none',
+        'aria-hidden': 'true',
+        style: { display: 'block', flex: 'none' },
+      },
+        h('path', { d: 'M4 16a8 8 0 1 1 16 0', stroke: 'currentColor', 'stroke-width': 1.8, 'stroke-linecap': 'round', opacity: 0.4 }),
+        h('path', { d: 'M4 16a8 8 0 0 1 2.7-6', stroke: 'currentColor', 'stroke-width': 1.8, 'stroke-linecap': 'round' }),
+        h('path', { d: 'M12 16l3.4-4.6', stroke: 'currentColor', 'stroke-width': 1.8, 'stroke-linecap': 'round' }),
+        h('circle', { cx: 12, cy: 16, r: 1.7, fill: 'currentColor' }));
     }
 
     function QuotaPanel() {
@@ -606,7 +699,7 @@ window.__ModuleLoader__.load({
                     h('div', { className: 'ocq-model' },
                       h('span', { className: 'ocq-model-name' }, model.name),
                       h('span', { className: 'ocq-model-id ocq-mono' }, model.id),
-                      showPrices ? h('span', { className: 'ocq-model-price' }, priceLine(model)) : null)),
+                      showPrices ? priceChips(model) : null)),
                   h('td', { key: 'cap' }, model.free
                     ? h('span', { className: 'ocq-tag is-free' }, pick('page.free'))
                     : money(model.monthlyLimit)),
@@ -664,6 +757,7 @@ window.__ModuleLoader__.load({
         onClick: open,
       },
         h('span', { className: `ocq-dot is-${tone}` }),
+        h(GaugeIcon, { size: 13 }),
         h('span', null, pick('entry.label')),
         h('span', { className: 'ocq-entry-value' }, percentText(percent)));
     }
@@ -715,36 +809,22 @@ window.__ModuleLoader__.load({
 
       if (!prefs) return h('div', { className: 'ocq-empty' }, pick('page.loading'));
 
+      const setting = (label, hint, checked, onChange) => h('label', { className: 'ocq-setting' },
+        h('span', { className: 'ocq-setting-text' },
+          h('span', { className: 'ocq-setting-label' }, label),
+          hint ? h('span', { className: 'ocq-setting-hint' }, hint) : null),
+        h('input', { type: 'checkbox', className: 'ocq-switch', checked, onChange }));
+
       return h(React.Fragment, null,
         h(Styles),
         h('div', { className: 'ocq-settings' },
           h('div', { className: 'ocq-head' },
             h('h2', { className: 'ocq-title' }, pick('settings.title')),
             h('p', { className: 'ocq-subtitle' }, pick('settings.hint'))),
-          h('label', { className: 'ocq-check' },
-            h('input', {
-              type: 'checkbox', checked: prefs.entries.header !== false,
-              onChange: () => toggle('entries', 'header'),
-            }),
-            h('span', null, pick('settings.header'))),
-          h('label', { className: 'ocq-check' },
-            h('input', {
-              type: 'checkbox', checked: prefs.entries.dock !== false,
-              onChange: () => toggle('entries', 'dock'),
-            }),
-            h('span', null, pick('settings.dock'))),
-          h('label', { className: 'ocq-check' },
-            h('input', {
-              type: 'checkbox', checked: prefs.entries.footer === true,
-              onChange: () => toggle('entries', 'footer'),
-            }),
-            h('span', null, pick('settings.footer'))),
-          h('label', { className: 'ocq-check' },
-            h('input', {
-              type: 'checkbox', checked: prefs.prices.show !== false,
-              onChange: () => toggle('prices', 'show'),
-            }),
-            h('span', null, pick('settings.prices'))),
+          setting(pick('settings.header'), null, prefs.entries.header !== false, () => toggle('entries', 'header')),
+          setting(pick('settings.dock'), null, prefs.entries.dock !== false, () => toggle('entries', 'dock')),
+          setting(pick('settings.footer'), null, prefs.entries.footer === true, () => toggle('entries', 'footer')),
+          setting(pick('settings.prices'), pick('settings.pricesHint'), prefs.prices.show !== false, () => toggle('prices', 'show')),
           h('div', { className: 'ocq-row' },
             h('button', { className: 'ocq-button', type: 'button', onClick: open }, pick('settings.open')),
             saving ? h('span', { className: 'ocq-hint' }, pick('page.loading')) : null,
