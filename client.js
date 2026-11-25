@@ -503,6 +503,7 @@ window.__ModuleLoader__.load({
       .ocq-foot { border-radius: 6px; }
       .ocq-pill { border-radius: 999px; height: 24px; font-size: 11px; }
       .ocq-entry-value { font-variant-numeric: tabular-nums; color: var(--dsw-alias-label-primary); }
+      .ocq-entry-label { color: var(--dsw-alias-label-secondary); }
       .ocq-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--dsw-alias-state-success-primary); flex: none; }
       .ocq-dot.is-warn { background: var(--dsw-alias-state-warn-primary); }
       .ocq-dot.is-danger { background: var(--dsw-alias-state-error-primary); }
@@ -750,7 +751,7 @@ window.__ModuleLoader__.load({
         },
           h('span', { className: `ocq-dot is-${tone}` }),
           h(GaugeIcon, { size: 13 }),
-          props.variant === 'dock' ? h('span', null, pick('entry.label')) : null,
+          h('span', { className: 'ocq-entry-label' }, pick('entry.label')),
           h('span', { className: 'ocq-entry-value' }, percentText(percent))));
     }
 

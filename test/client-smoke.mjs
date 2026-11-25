@@ -223,6 +223,7 @@ assert.ok(settingsText.second.includes('输入框下方'), 'dock toggle missing'
 assert.ok(settingsText.second.includes('显示模型价格'), 'price toggle missing');
 
 const headerText = await render(header);
+assert.ok(headerText.second.includes('额度'), 'header entry label missing');
 assert.ok(headerText.second.includes('4%'), 'header percentage missing');
 
 const dockText = await render(dock);
